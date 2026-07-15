@@ -1,0 +1,17 @@
+What is an S3 Bucket
+
+Amazon S3 (Simple Storage Service) is an AWS service used to store and retrieve files over the internet.
+
+A bucket is a container where files are stored in S3.
+
+👉 In simple words:
+S3 Bucket = Folder in the cloud used to store files.
+
+
+What is Docker?
+
+Docker is a containerization platform used to build, package, and run applications in containers.
+
+Simple Definition
+
+Docker is a tool that packages an application with all its dependencies into a container so it can run anywhere.
