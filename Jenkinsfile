@@ -9,7 +9,6 @@ pipeline {
         BACKEND_ECR  = '657566734724.dkr.ecr.us-east-1.amazonaws.com/three-tier-backend'
 
         EKS_CLUSTER = 'task9-cluster'
-
         IMAGE_TAG = "${BUILD_NUMBER}"
     }
 
@@ -64,7 +63,7 @@ pipeline {
         stage('Test') {
             steps {
                 sh '''
-                    echo "Running application tests..."
+                    echo "Running backend tests..."
 
                     cd Backenddeployment
 
@@ -109,7 +108,7 @@ pipeline {
         stage('Connect to EKS') {
             steps {
                 sh '''
-                    echo "Connecting to EKS..."
+                    echo "Connecting to EKS Cluster..."
 
                     aws eks update-kubeconfig \
                       --region ${AWS_REGION} \
@@ -151,7 +150,7 @@ pipeline {
             }
         }
 
-        stage('Verify Deployment') {
+        stage('Verify Kubernetes Deployment') {
             steps {
                 sh '''
                     echo "Checking Deployments..."
@@ -165,68 +164,57 @@ pipeline {
                     echo "Checking Services..."
 
                     kubectl get services
+
+            echo 'Pipeline execution completed.'
+    }
+}        }
+        always {
+        }
+        failure {
+            echo 'CI/CD PIPELINE FAILED - CHECK CONSOLE OUTPUT'
+
+
+        }
+                    echo "Final Kubernetes Status..."
+            echo 'CI/CD PIPELINE COMPLETED SUCCESSFULLY'
+
+                    kubectl get pods
+        success {
+                    kubectl get services
+
+    post {
+                '''
+            }
+
+    }
+            }
+        }
+                '''
+                    echo "Application health verification completed."
+        }
+
+                    kubectl get endpoints frontend-service
+
+            steps {
+                sh '''
+                    echo "Checking backend endpoints..."
+                    kubectl get endpoints backend-service
+
+                    echo "Checking frontend endpoints..."
+
+        stage('Application Health Check') {
+
+                    kubectl rollout status deployment/frontend --timeout=180s
+
                 '''
             }
         }
 
+                    echo "Checking Frontend Rollout..."
         stage('Rollout Status') {
             steps {
+
                 sh '''
                     echo "Checking Backend Rollout..."
 
                     kubectl rollout status deployment/backend --timeout=180s
-
-                    echo "Checking Frontend Rollout..."
-
-                    kubectl rollout status deployment/frontend --timeout=180s
-
-                    echo "Final Kubernetes Status..."
-
-                    kubectl get pods
-
-                    kubectl get services
-                '''
-            }
-        }
-
-        stage('Application Health Check') {
-            steps {
-                sh '''
-                    echo "Checking backend service..."
-
-                    kubectl get endpoints backend-service
-
-                    echo "Checking frontend service..."
-
-                    kubectl get endpoints frontend-service
-
-                    echo "Application health verification completed."
-                '''
-            }
-        }
-    }
-
-    post {
-
-        success {
-            echo '''
-            ==========================================
-            CI/CD PIPELINE COMPLETED SUCCESSFULLY
-            ==========================================
-            '''
-        }
-
-        failure {
-            echo '''
-            ==========================================
-            CI/CD PIPELINE FAILED
-            CHECK CONSOLE OUTPUT
-            ==========================================
-            '''
-        }
-
-        always {
-            echo 'Pipeline execution completed.'
-        }
-    }
-}
