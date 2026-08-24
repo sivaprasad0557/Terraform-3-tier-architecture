@@ -5,302 +5,228 @@ pipeline {
         AWS_REGION = 'us-east-1'
         AWS_ACCOUNT_ID = '657566734724'
 
-        ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+        FRONTEND_ECR = '657566734724.dkr.ecr.us-east-1.amazonaws.com/three-tier-frontend'
+        BACKEND_ECR  = '657566734724.dkr.ecr.us-east-1.amazonaws.com/three-tier-backend'
 
-        FRONTEND_REPO = 'three-tier-frontend'
-        BACKEND_REPO  = 'three-tier-backend'
-
-        EKS_CLUSTER = 'three-tier-cluster'
+        EKS_CLUSTER = 'task9-cluster'
 
         IMAGE_TAG = "${BUILD_NUMBER}"
-            ============================================
-
-            Check the Jenkins Console Output
-            for the failed stage.
-
-            ============================================
-            """
-        }
-
-        always {
-            sh '''
-                echo "Cleaning unused Docker images..."
-                docker image prune -f || true
-            '''
-        }
-    }
-}
-```
     }
 
     stages {
-            PIPELINE FAILED
 
         stage('Checkout') {
             steps {
-        failure {
-            echo """
-            ============================================
-                echo 'Checking out source code...'
+                echo 'Checking out source code from GitHub...'
                 checkout scm
             }
         }
 
-
-        stage('Verify Files') {
+        stage('Check Tools') {
             steps {
                 sh '''
-                    echo "===== Repository ====="
-            Backend Image:
-            ============================================
-            """
-        }
-            ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG}
+                    echo "Checking Docker..."
+                    docker --version
 
-            EKS Cluster:
-            ${EKS_CLUSTER}
+                    echo "Checking AWS CLI..."
+                    aws --version
 
-            Region:
-            ${AWS_REGION}
-
-                    ls -la
-
-                    echo "===== Frontend ====="
-                    ls -la "Frontend deployment"
-
-            Frontend Image:
-            ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG}
-
-
-                    echo "===== Backend ====="
-                    ls -la Backenddeployment
-
-                    echo "===== Kubernetes ====="
-                    if [ -d k8s ]; then
-                        ls -la k8s
-                    else
-            Build Number: ${BUILD_NUMBER}
-                        echo "k8s directory not present in Git repository"
-                    fi
+                    echo "Checking kubectl..."
+                    kubectl version --client
                 '''
-            }
-        }
-
-            ============================================
-
-        stage('Create Frontend Dockerfile') {
-            steps {
-                sh '''
-                    cat > "Frontend deployment/Dockerfile" <<'EOF'
-        success {
-            echo """
-            ============================================
-            PIPELINE SUCCESS
-FROM nginx:alpine
-
-COPY index.html /usr/share/nginx/html/index.html
-
-EXPOSE 80
-
-    post {
-
-CMD ["nginx", "-g", "daemon off;"]
-EOF
-
-                    echo "Frontend Dockerfile created."
-                    cat "Frontend deployment/Dockerfile"
-                '''
-            }
-
-        }
-
-        stage('Create Backend Dockerfile') {
-            steps {
-                sh '''
-            }
-        }
-    }
-                    cat > Backenddeployment/Dockerfile <<'EOF'
-FROM node:18-alpine
-
-WORKDIR /app
-
-
-                    echo "Application test completed."
-                '''
-COPY package*.json ./
-                      -- \
-                      curl -f http://backend-service:5000/ || true
-
-RUN npm ci --omit=dev
-
-COPY server.js ./
-
-                      --image=curlimages/curl \
-EXPOSE 5000
-
-CMD ["node", "server.js"]
-EOF
-
-                    echo "Backend Dockerfile created."
-                      -i \
-                      --restart=Never \
-                    cat Backenddeployment/Dockerfile
-                '''
-            }
-        }
-
-        stage('Install Backend Dependencies') {
-            steps {
-                dir('Backenddeployment') {
-                    sh '''
-                        npm ci
-                      --rm \
-                    '''
-                }
             }
         }
 
         stage('Build Frontend Docker Image') {
             steps {
-                dir('Frontend deployment') {
-                    sh """
-                        docker build \
-                    kubectl run jenkins-test \
-                          -t ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG} \
-                          -t ${ECR_REGISTRY}/${FRONTEND_REPO}:latest \
-                          .
-                    """
-                }
+                sh '''
+                    echo "Building Frontend Docker Image..."
+
+                    docker build \
+                      -t ${FRONTEND_ECR}:${IMAGE_TAG} \
+                      "./Frontend deployment"
+                '''
             }
         }
 
         stage('Build Backend Docker Image') {
             steps {
-                dir('Backenddeployment') {
-
-                    sh """
-                        docker build \
-                          -t ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG} \
-                          -t ${ECR_REGISTRY}/${BACKEND_REPO}:latest \
-                          .
-                    """
-                }
-            }
-        }
-
-        stage('Login to Amazon ECR') {
-            steps {
                 sh '''
-                    aws ecr get-login-password --region ${AWS_REGION} | \
-                    docker login \
-                    --username AWS \
-                    --password-stdin ${ECR_REGISTRY}
+                    echo "Building Backend Docker Image..."
+
+                    docker build \
+                      -t ${BACKEND_ECR}:${IMAGE_TAG} \
+                      "./Backenddeployment"
                 '''
-                    echo "Testing backend service inside Kubernetes..."
             }
         }
 
-        stage('Push Frontend Image to ECR') {
-            steps {
-                sh """
-                    docker push ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG}
-                    docker push ${ECR_REGISTRY}/${FRONTEND_REPO}:latest
-                """
-            }
-        }
-
-        stage('Push Backend Image to ECR') {
-            steps {
-                sh """
-                    docker push ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG}
-                    docker push ${ECR_REGISTRY}/${BACKEND_REPO}:latest
-                """
-                sh '''
-            }
-        }
-
-        stage('Configure kubectl for EKS') {
+        stage('Test') {
             steps {
                 sh '''
+                    echo "Running application tests..."
+
+                    cd Backenddeployment
+
+                    npm install
+
+                    npm test --if-present
+
+                    echo "Tests completed successfully."
+                '''
+            }
+        }
+
+        stage('Login to AWS ECR') {
+            steps {
+                sh '''
+                    echo "Logging in to AWS ECR..."
+
+                    aws ecr get-login-password \
+                      --region ${AWS_REGION} | \
+                    docker login \
+                      --username AWS \
+                      --password-stdin \
+                      ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                '''
+            }
+        }
+
+        stage('Push Images to ECR') {
+            steps {
+                sh '''
+                    echo "Pushing Frontend Image..."
+
+                    docker push ${FRONTEND_ECR}:${IMAGE_TAG}
+
+                    echo "Pushing Backend Image..."
+
+                    docker push ${BACKEND_ECR}:${IMAGE_TAG}
+                '''
+            }
+        }
+
+        stage('Connect to EKS') {
+            steps {
+                sh '''
+                    echo "Connecting to EKS..."
+
                     aws eks update-kubeconfig \
                       --region ${AWS_REGION} \
                       --name ${EKS_CLUSTER}
 
-                    echo "===== EKS Cluster ====="
+                    echo "Checking EKS Nodes..."
+
                     kubectl get nodes
                 '''
             }
         }
 
-            steps {
-        stage('Check Kubernetes Resources') {
+        stage('Deploy to Kubernetes') {
             steps {
                 sh '''
-                    echo "===== Deployments ====="
-                    kubectl get deployments
+                    echo "Deploying Kubernetes Services..."
 
-                    echo "===== Services ====="
-                    kubectl get services
+                    kubectl apply -f k8s/backend-service.yaml
+                    kubectl apply -f k8s/frontend-service.yaml
 
-                    echo "===== Pods ====="
-                    kubectl get pods
-                '''
+                    echo "Deploying Backend..."
 
-        stage('Application Test') {
-            }
-        }
+                    kubectl apply -f k8s/backend-deployment.yaml
 
-        stage('Update Backend Image') {
-            steps {
-                sh """
+                    echo "Deploying Frontend..."
+
+                    kubectl apply -f k8s/frontend-deployment.yaml
+
+                    echo "Updating Backend Image..."
+
                     kubectl set image deployment/backend \
-                      backend=${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG}
+                      backend=${BACKEND_ECR}:${IMAGE_TAG}
 
-            }
-        }
-                    kubectl rollout status deployment/backend \
-                      --timeout=180s
-                """
-            }
-        }
+                    echo "Updating Frontend Image..."
 
-        stage('Update Frontend Image') {
-            steps {
-                sh """
-
-                    kubectl rollout status deployment/frontend \
-
-                      --timeout=180s
+                    kubectl set image deployment/frontend \
+                      frontend=${FRONTEND_ECR}:${IMAGE_TAG}
                 '''
-                """
-
             }
-
         }
-
 
         stage('Verify Deployment') {
             steps {
-
                 sh '''
+                    echo "Checking Deployments..."
 
-                    echo "===== Deployments ====="
                     kubectl get deployments
-                    kubectl rollout status deployment/frontend
 
-
-                    echo "===== Pods ====="
+                    echo "Checking Pods..."
 
                     kubectl get pods -o wide
 
-
-                    echo "===== Services ====="
+                    echo "Checking Services..."
 
                     kubectl get services
+                '''
+            }
+        }
 
-                    echo "===== Backend Rollout ====="
-                    kubectl rollout status deployment/backend
+        stage('Rollout Status') {
+            steps {
+                sh '''
+                    echo "Checking Backend Rollout..."
 
-                    echo "===== Frontend Rollout ====="
+                    kubectl rollout status deployment/backend --timeout=180s
 
+                    echo "Checking Frontend Rollout..."
+
+                    kubectl rollout status deployment/frontend --timeout=180s
+
+                    echo "Final Kubernetes Status..."
+
+                    kubectl get pods
+
+                    kubectl get services
+                '''
+            }
+        }
+
+        stage('Application Health Check') {
+            steps {
+                sh '''
+                    echo "Checking backend service..."
+
+                    kubectl get endpoints backend-service
+
+                    echo "Checking frontend service..."
+
+                    kubectl get endpoints frontend-service
+
+                    echo "Application health verification completed."
+                '''
+            }
+        }
+    }
+
+    post {
+
+        success {
+            echo '''
+            ==========================================
+            CI/CD PIPELINE COMPLETED SUCCESSFULLY
+            ==========================================
+            '''
+        }
+
+        failure {
+            echo '''
+            ==========================================
+            CI/CD PIPELINE FAILED
+            CHECK CONSOLE OUTPUT
+            ==========================================
+            '''
+        }
+
+        always {
+            echo 'Pipeline execution completed.'
+        }
+    }
+}
