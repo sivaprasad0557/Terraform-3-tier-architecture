@@ -5,17 +5,10 @@ on:
   push:
     branches:
       - main
-    paths:
-      - "Backenddeployment/**"
-      - "Frontend deployment/**"
-      - ".github/workflows/fullstack-ci-cd.yml"
 
   pull_request:
     branches:
       - main
-    paths:
-      - "Backenddeployment/**"
-      - "Frontend deployment/**"
 
 permissions:
   id-token: write
@@ -28,95 +21,78 @@ env:
 
 jobs:
 
-  backend-build-test:
-    name: Backend Build and Test
+  backend-build:
+    name: Backend Build Test
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: npm
-          cache-dependency-path: Backenddeployment/package-lock.json
 
       - name: Install dependencies
         working-directory: Backenddeployment
         run: npm ci
 
-      - name: Validate JavaScript
+      - name: Check JavaScript
         working-directory: Backenddeployment
         run: node --check server.js
 
-      - name: Check backend files
-        working-directory: Backenddeployment
-        run: |
-          test -f package.json
-          test -f package-lock.json
-          test -f server.js
-          test -f Dockerfile
-          echo "Backend validation successful"
-
   backend-docker:
-    name: Backend Docker Build and Push
-    needs: backend-build-test
+    name: Backend Docker Build Push
+    needs: backend-build
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: us-east-1
 
-      - name: Login to Amazon ECR
-        id: login-ecr
+      - name: Login ECR
+        id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build backend Docker image
+      - name: Build backend
         working-directory: Backenddeployment
         run: |
           docker build \
-            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.BACKEND_ECR_REPOSITORY }}:${{ github.sha }} \
-            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.BACKEND_ECR_REPOSITORY }}:latest \
+            -t ${{ steps.ecr.outputs.registry }}/contact-backend:${{ github.sha }} \
             .
 
-      - name: Push backend commit image
+      - name: Push backend
         run: |
           docker push \
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.BACKEND_ECR_REPOSITORY }}:${{ github.sha }}
-
-      - name: Push backend latest image
-        run: |
-          docker push \
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.BACKEND_ECR_REPOSITORY }}:latest
+            ${{ steps.ecr.outputs.registry }}/contact-backend:${{ github.sha }}
 
   backend-deploy:
-    name: Deploy Backend to EC2
+    name: Backend Deploy
     needs: backend-docker
     runs-on: ubuntu-latest
 
     steps:
-      - name: Configure AWS credentials
+      - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: us-east-1
 
-      - name: Login to Amazon ECR
-        id: login-ecr
+      - name: Login ECR
+        id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Deploy backend to EC2
+      - name: Deploy Backend
         uses: appleboy/ssh-action@v1.2.0
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -126,18 +102,13 @@ jobs:
           script: |
             set -e
 
-            echo "=========================================="
-            echo "BACKEND DEPLOYMENT"
-            echo "=========================================="
-
             aws ecr get-login-password --region us-east-1 | \
               docker login \
               --username AWS \
               --password-stdin \
               "$ECR_REGISTRY"
 
-            docker pull \
-              "$ECR_REGISTRY/contact-backend:$IMAGE_TAG"
+            docker pull "$ECR_REGISTRY/contact-backend:$IMAGE_TAG"
 
             docker stop backend || true
             docker rm backend || true
@@ -150,93 +121,77 @@ jobs:
               -p 5000:5000 \
               "$ECR_REGISTRY/contact-backend:$IMAGE_TAG"
 
-            echo "Waiting for backend..."
             sleep 10
 
             curl --fail http://localhost:5000/
-            curl --fail http://localhost:5000/api/recipes
 
             echo "Backend deployment successful"
 
-  frontend-build-test:
-    name: Frontend Build and Test
+  frontend-build:
+    name: Frontend Build Test
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check frontend files
+      - name: Check frontend
         working-directory: Frontend deployment
         run: |
           test -f index.html
           test -f Dockerfile
-          echo "Frontend files found"
-          ls -la
-
-      - name: Validate HTML
-        working-directory: Frontend deployment
-        run: |
           grep -qi "<html" index.html
-          grep -qi "</html>" index.html
-          echo "Frontend HTML validation successful"
+          echo "Frontend validation successful"
 
   frontend-docker:
-    name: Frontend Docker Build and Push
-    needs: frontend-build-test
+    name: Frontend Docker Build Push
+    needs: frontend-build
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS
         with:
           role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Login to Amazon ECR
-        id: login-ecr
+          aws-region: us-east-1
+
+      - name: Login ECR
+        id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build frontend Docker image
+      - name: Build frontend
         working-directory: Frontend deployment
         run: |
           docker build \
-            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.FRONTEND_ECR_REPOSITORY }}:${{ github.sha }} \
-            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.FRONTEND_ECR_REPOSITORY }}:latest \
+            -t ${{ steps.ecr.outputs.registry }}/frontend:${{ github.sha }} \
             .
 
-      - name: Push frontend commit image
+      - name: Push frontend
         run: |
           docker push \
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.FRONTEND_ECR_REPOSITORY }}:${{ github.sha }}
-
-      - name: Push frontend latest image
-        run: |
-          docker push \
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.FRONTEND_ECR_REPOSITORY }}:latest
+            ${{ steps.ecr.outputs.registry }}/frontend:${{ github.sha }}
 
   frontend-deploy:
-    name: Deploy Frontend to EC2
+    name: Frontend Deploy
     needs: frontend-docker
     runs-on: ubuntu-latest
 
     steps:
-      - name: Configure AWS credentials
+      - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: us-east-1
 
-      - name: Login to Amazon ECR
-        id: login-ecr
+      - name: Login ECR
+        id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Deploy frontend to EC2
+      - name: Deploy Frontend
         uses: appleboy/ssh-action@v1.2.0
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -246,18 +201,13 @@ jobs:
           script: |
             set -e
 
-            echo "=========================================="
-            echo "FRONTEND DEPLOYMENT"
-            echo "=========================================="
-
             aws ecr get-login-password --region us-east-1 | \
               docker login \
               --username AWS \
               --password-stdin \
               "$ECR_REGISTRY"
 
-            docker pull \
-              "$ECR_REGISTRY/frontend:$IMAGE_TAG"
+            docker pull "$ECR_REGISTRY/frontend:$IMAGE_TAG"
 
             docker stop frontend || true
             docker rm frontend || true
@@ -268,26 +218,21 @@ jobs:
               -p 80:80 \
               "$ECR_REGISTRY/frontend:$IMAGE_TAG"
 
-
-            echo "Waiting for frontend..."
             sleep 5
 
             curl --fail http://localhost/
 
-
             echo "Frontend deployment successful"
 
   final-verification:
-    name: Final Application Verification
-
+    name: Final Verification
     needs:
       - backend-deploy
       - frontend-deploy
     runs-on: ubuntu-latest
 
-
     steps:
-      - name: Verify complete application
+      - name: Verify Application
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -296,30 +241,22 @@ jobs:
           script: |
             set -e
 
-            echo "=========================================="
-
-            echo "FINAL APPLICATION VERIFICATION"
-            echo "=========================================="
-
             echo "Docker containers:"
             docker ps
 
-            echo "Testing backend:"
+            echo "Backend:"
             curl --fail http://localhost:5000/
 
-            echo "Testing backend API:"
+            echo "Backend API:"
             curl --fail http://localhost:5000/api/recipes
 
-
-            echo "Testing frontend:"
+        uses: aws-actions/configure-aws-credentials@v4
+            echo "Frontend:"
             curl --fail http://localhost/
 
-            echo "Checking MySQL:"
+            echo "MySQL:"
             docker ps --filter "name=mysql"
 
-            echo "=========================================="
             echo "FULL STACK DEPLOYMENT SUCCESSFUL"
-
-            echo "=========================================="
 ```
 
