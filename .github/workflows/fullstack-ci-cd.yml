@@ -1,3 +1,4 @@
+```yaml
 name: Full Stack CI/CD
 
 on:
@@ -26,11 +27,11 @@ env:
   BACKEND_ECR_REPOSITORY: contact-backend
   FRONTEND_ECR_REPOSITORY: frontend
 
-# =========================================================
-# BACKEND - BUILD AND VALIDATE
-# =========================================================
-
 jobs:
+
+  # ==========================================
+  # BACKEND BUILD AND TEST
+  # ==========================================
 
   backend-build-test:
     name: Backend Build and Test
@@ -51,11 +52,11 @@ jobs:
         working-directory: Backenddeployment
         run: npm ci
 
-      - name: Validate backend JavaScript
+      - name: Validate JavaScript
         working-directory: Backenddeployment
         run: node --check server.js
 
-      - name: Check required backend files
+      - name: Check backend files
         working-directory: Backenddeployment
         run: |
           test -f package.json
@@ -64,9 +65,9 @@ jobs:
           test -f Dockerfile
           echo "Backend validation successful"
 
-  # =======================================================
-  # BACKEND - DOCKER BUILD AND ECR PUSH
-  # =======================================================
+  # ==========================================
+  # BACKEND DOCKER BUILD AND PUSH
+  # ==========================================
 
   backend-docker:
     name: Backend Docker Build and Push
@@ -95,7 +96,7 @@ jobs:
             -t ${{ steps.login-ecr.outputs.registry }}/${{ env.BACKEND_ECR_REPOSITORY }}:latest \
             .
 
-      - name: Push backend image with commit tag
+      - name: Push backend commit image
         run: |
           docker push \
             ${{ steps.login-ecr.outputs.registry }}/${{ env.BACKEND_ECR_REPOSITORY }}:${{ github.sha }}
@@ -105,18 +106,49 @@ jobs:
           docker push \
             ${{ steps.login-ecr.outputs.registry }}/${{ env.BACKEND_ECR_REPOSITORY }}:latest
 
-  # =======================================================
-  # BACKEND - DEPLOY TO EC2
-  # =======================================================
+  # ==========================================
+  # BACKEND DEPLOYMENT
+  # ==========================================
 
   backend-deploy:
     name: Deploy Backend to EC2
-          envs: ECR_REGISTRY,IMAGE_TAG
+    needs: backend-docker
+    runs-on: ubuntu-latest
 
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Deploy backend to EC2
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: ECR_REGISTRY,IMAGE_TAG
+          script: |
+            set -e
+
+            echo "=========================================="
+            echo "BACKEND DEPLOYMENT"
+            echo "=========================================="
+
+            echo "Logging into Amazon ECR..."
 
             aws ecr get-login-password --region us-east-1 | \
               docker login \
               --username AWS \
+              --password-stdin \
               "$ECR_REGISTRY"
 
             echo "Pulling backend image..."
@@ -125,6 +157,7 @@ jobs:
               "$ECR_REGISTRY/contact-backend:$IMAGE_TAG"
 
             echo "Stopping old backend container..."
+
             docker stop backend || true
             docker rm backend || true
 
@@ -136,6 +169,7 @@ jobs:
               --network app-network \
               --env-file /home/ubuntu/backend.env \
               -p 5000:5000 \
+              "$ECR_REGISTRY/contact-backend:$IMAGE_TAG"
 
             echo "Waiting for backend..."
 
@@ -143,23 +177,28 @@ jobs:
 
             echo "Testing backend..."
 
+            curl --fail http://localhost:5000/
+
+            echo "Testing backend API..."
 
             curl --fail http://localhost:5000/api/recipes
 
             echo "Backend deployment successful"
 
-  # =======================================================
-  # FRONTEND - BUILD AND VALIDATE
-  # =======================================================
+  # ==========================================
+  # FRONTEND BUILD AND TEST
+  # ==========================================
 
   frontend-build-test:
+    name: Frontend Build and Test
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Validate frontend files
+      - name: Check frontend files
+        working-directory: Frontend deployment
         run: |
           test -f index.html
           test -f Dockerfile
@@ -167,14 +206,15 @@ jobs:
           ls -la
 
       - name: Validate HTML
+        working-directory: Frontend deployment
         run: |
           grep -qi "<html" index.html
           grep -qi "</html>" index.html
           echo "Frontend HTML validation successful"
 
-  # =======================================================
-  # FRONTEND - DOCKER BUILD AND ECR PUSH
-  # =======================================================
+  # ==========================================
+  # FRONTEND DOCKER BUILD AND PUSH
+  # ==========================================
 
   frontend-docker:
     name: Frontend Docker Build and Push
@@ -191,6 +231,7 @@ jobs:
           role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
@@ -202,7 +243,7 @@ jobs:
             -t ${{ steps.login-ecr.outputs.registry }}/${{ env.FRONTEND_ECR_REPOSITORY }}:latest \
             .
 
-      - name: Push frontend image with commit tag
+      - name: Push frontend commit image
         run: |
           docker push \
             ${{ steps.login-ecr.outputs.registry }}/${{ env.FRONTEND_ECR_REPOSITORY }}:${{ github.sha }}
@@ -212,9 +253,9 @@ jobs:
           docker push \
             ${{ steps.login-ecr.outputs.registry }}/${{ env.FRONTEND_ECR_REPOSITORY }}:latest
 
-  # =======================================================
-  # FRONTEND - DEPLOY TO EC2
-  # =======================================================
+  # ==========================================
+  # FRONTEND DEPLOYMENT
+  # ==========================================
 
   frontend-deploy:
     name: Deploy Frontend to EC2
@@ -228,30 +269,25 @@ jobs:
           role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login to ECR
+      - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Deploy frontend container
+      - name: Deploy frontend to EC2
         uses: appleboy/ssh-action@v1.2.0
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
           envs: ECR_REGISTRY,IMAGE_TAG
           script: |
-            set -e
+            echo "FRONTEND DEPLOYMENT"
 
-            echo "Logging into Amazon ECR..."
 
             aws ecr get-login-password --region us-east-1 | \
               docker login \
               --username AWS \
               --password-stdin \
-              "$ECR_REGISTRY"
 
             echo "Pulling frontend image..."
 
@@ -272,7 +308,6 @@ jobs:
               "$ECR_REGISTRY/frontend:$IMAGE_TAG"
 
             echo "Waiting for frontend..."
-
             sleep 5
 
             echo "Testing frontend..."
@@ -281,19 +316,18 @@ jobs:
 
             echo "Frontend deployment successful"
 
-  # =======================================================
+  # ==========================================
   # FINAL VERIFICATION
-  # =======================================================
+  # ==========================================
 
   final-verification:
     name: Final Application Verification
     needs:
-      - backend-deploy
       - frontend-deploy
     runs-on: ubuntu-latest
 
     steps:
-      - name: Verify deployment
+      - name: Verify complete application
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -302,9 +336,9 @@ jobs:
           script: |
             set -e
 
-            echo "========================================"
-            echo "FINAL DEPLOYMENT VERIFICATION"
-            echo "========================================"
+            echo "=========================================="
+            echo "FINAL APPLICATION VERIFICATION"
+            echo "=========================================="
 
             echo ""
             echo "Docker containers:"
@@ -323,40 +357,21 @@ jobs:
             curl --fail http://localhost/
 
             echo ""
-            echo "Checking MySQL container:"
+            echo "Checking MySQL:"
             docker ps --filter "name=mysql"
 
             echo ""
-            echo "========================================"
+            echo "=========================================="
             echo "FULL STACK DEPLOYMENT SUCCESSFUL"
-            echo "========================================"
+            echo "=========================================="
 ```
-      - name: Login to Amazon ECR
-        working-directory: Frontend deployment
-        working-directory: Frontend deployment
-    name: Frontend Build and Test
-            curl --fail http://localhost:5000/
-              "$ECR_REGISTRY/contact-backend:$IMAGE_TAG"
+      - backend-deploy
 
-              --password-stdin \
+              "$ECR_REGISTRY"
             echo "Logging into Amazon ECR..."
+            echo "=========================================="
+            echo "=========================================="
             set -e
-          script: |
-          key: ${{ secrets.EC2_SSH_KEY }}
+
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
-    needs: backend-docker
-    runs-on: ubuntu-latest
-        with:
-
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-    steps:
-      - name: Configure AWS credentials
-        uses: appleboy/ssh-action@v1.2.0
-        env:
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
-          aws-region: ${{ env.AWS_REGION }}
-
