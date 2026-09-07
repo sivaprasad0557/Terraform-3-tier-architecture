@@ -26,6 +26,7 @@ jobs:
           echo "AWS authentication successful"
           aws sts get-caller-identity
 
-      - name: Check AWS region
+      - name: Check AWS identity
         run: |
-          aws configure get region
+          echo "AWS authentication successful"
+          aws sts get-caller-identity
