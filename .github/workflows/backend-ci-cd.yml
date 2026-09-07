@@ -1,15 +1,68 @@
-name: AWS OIDC Test
+name: Backend CI/CD
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Backenddeployment/**'
+      - '.github/workflows/backend ci-cd.yml'
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'Backenddeployment/**'
 
 permissions:
   id-token: write
   contents: read
 
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: contact-backend
+
 jobs:
-  aws-test:
+
+  # =====================================================
+  # JOB 1 - BUILD AND VALIDATE
+  # =====================================================
+  build-test:
+    name: Build & Validate Backend
     runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: Backenddeployment
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: Backenddeployment/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate application
+        run: node --check server.js
+
+  # =====================================================
+  # JOB 2 - DOCKER BUILD AND PUSH TO ECR
+  # =====================================================
+  docker-publish:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: build-test
+
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - name: Checkout code
@@ -19,14 +72,89 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Check AWS identity
-        run: |
-          echo "AWS authentication successful"
-          aws sts get-caller-identity
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Check AWS identity
+      - name: Build Docker image
+        working-directory: Backenddeployment
         run: |
-          echo "AWS authentication successful"
-          aws sts get-caller-identity
+          docker build \
+            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} \
+            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest \
+            .
+
+      - name: Push Docker image
+        run: |
+          docker push \
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+          docker push \
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+
+  # =====================================================
+  # JOB 3 - DEPLOY TO BACKEND EC2
+  # =====================================================
+  deploy:
+    name: Deploy Backend to EC2
+    runs-on: ubuntu-latest
+    needs: docker-publish
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Deploy to Backend EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+
+            echo "Logging in to ECR..."
+
+            aws ecr get-login-password --region us-east-1 | \
+              docker login \
+              --username AWS \
+              --password-stdin \
+              ${{ steps.login-ecr.outputs.registry }}
+
+            echo "Pulling latest backend image..."
+
+            docker pull \
+              ${{ steps.login-ecr.outputs.registry }}/contact-backend:${{ github.sha }}
+
+            echo "Stopping old backend container..."
+
+            docker stop backend || true
+            docker rm backend || true
+
+            echo "Starting new backend container..."
+
+            docker run -d \
+              --name backend \
+              --restart unless-stopped \
+              --env-file /home/ubuntu/backend.env \
+              -p 5000:5000 \
+              ${{ steps.login-ecr.outputs.registry }}/contact-backend:${{ github.sha }}
+
+            echo "Waiting for backend..."
+
+            sleep 10
+
+            echo "Checking backend..."
+
+            curl --fail http://localhost:5000/
+
+            echo "Backend deployment successful!"
