@@ -20,7 +20,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout source code
         uses: actions/checkout@v4
 
@@ -37,10 +36,10 @@ jobs:
 
       - name: Validate application
         working-directory: Backenddeployment
-        run: node --check server.js
-
-      - name: Debug GitHub OIDC
-        uses: github/actions-oidc-debugger@main
+        run: |
+          echo "Checking server.js syntax..."
+          node --check server.js
+          echo "Syntax check passed"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
