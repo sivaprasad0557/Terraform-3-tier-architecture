@@ -53,3 +53,4 @@ app.get("/api/recipes", (req, res) => {
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
 });
+// CI/CD test
