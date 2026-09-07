@@ -14,10 +14,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ADD THE NEW STEP HERE
       - name: Debug GitHub OIDC claims
         shell: bash
         run: |
@@ -42,27 +42,25 @@ jobs:
               base64.urlsafe_b64decode(payload)
           )
 
-          for key in [
-              "iss",
-              "aud",
-              "sub",
-              "repository",
-              "repository_id",
-              "repository_owner",
-              "repository_owner_id",
-              "ref",
-              "workflow",
-              "environment"
-          ]:
-              print(f"{key}: {claims.get(key)}")
+          print("===== GitHub OIDC Claims =====")
+          print("iss:", claims.get("iss"))
+          print("aud:", claims.get("aud"))
+          print("sub:", claims.get("sub"))
+          print("repository:", claims.get("repository"))
+          print("repository_id:", claims.get("repository_id"))
+          print("repository_owner:", claims.get("repository_owner"))
+          print("repository_owner_id:", claims.get("repository_owner_id"))
+          print("ref:", claims.get("ref"))
+          print("workflow:", claims.get("workflow"))
+          print("environment:", claims.get("environment"))
+          print("================================")
           PY
 
-      # EXISTING AWS STEP
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
-          aws-region: ap-south-1
+          aws-region: us-east-1
 
       - name: Check AWS identity
         run: |
