@@ -39,6 +39,9 @@ jobs:
         working-directory: Backenddeployment
         run: node --check server.js
 
+      - name: Debug GitHub OIDC
+        uses: github/actions-oidc-debugger@main
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
