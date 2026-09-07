@@ -20,13 +20,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout source code
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: Backenddeployment/package-lock.json
 
@@ -36,16 +37,17 @@ jobs:
 
       - name: Validate application
         working-directory: Backenddeployment
-        run: |
-          echo "Checking server.js syntax..."
-          node --check server.js
-          echo "Syntax check passed"
+        run: node --check server.js
+
+      - name: Debug GitHub OIDC
+        uses: github/actions-oidc-debugger@main
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::435957166878:role/github-role
           aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -58,7 +60,7 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker build \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
             .
 
       - name: Push Docker image to ECR
@@ -67,4 +69,4 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker push \
-            $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+            "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
