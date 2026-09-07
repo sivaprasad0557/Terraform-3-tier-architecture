@@ -23,15 +23,10 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  AWS_ACCOUNT_ID: "435957166878"
   BACKEND_ECR_REPOSITORY: contact-backend
   FRONTEND_ECR_REPOSITORY: frontend
 
 jobs:
-
-  # ==========================================
-  # BACKEND BUILD AND TEST
-  # ==========================================
 
   backend-build-test:
     name: Backend Build and Test
@@ -64,10 +59,6 @@ jobs:
           test -f server.js
           test -f Dockerfile
           echo "Backend validation successful"
-
-  # ==========================================
-  # BACKEND DOCKER BUILD AND PUSH
-  # ==========================================
 
   backend-docker:
     name: Backend Docker Build and Push
@@ -106,10 +97,6 @@ jobs:
           docker push \
             ${{ steps.login-ecr.outputs.registry }}/${{ env.BACKEND_ECR_REPOSITORY }}:latest
 
-  # ==========================================
-  # BACKEND DEPLOYMENT
-  # ==========================================
-
   backend-deploy:
     name: Deploy Backend to EC2
     needs: backend-docker
@@ -143,25 +130,17 @@ jobs:
             echo "BACKEND DEPLOYMENT"
             echo "=========================================="
 
-            echo "Logging into Amazon ECR..."
-
             aws ecr get-login-password --region us-east-1 | \
               docker login \
               --username AWS \
               --password-stdin \
               "$ECR_REGISTRY"
 
-            echo "Pulling backend image..."
-
             docker pull \
               "$ECR_REGISTRY/contact-backend:$IMAGE_TAG"
 
-            echo "Stopping old backend container..."
-
             docker stop backend || true
             docker rm backend || true
-
-            echo "Starting new backend container..."
 
             docker run -d \
               --name backend \
@@ -172,22 +151,12 @@ jobs:
               "$ECR_REGISTRY/contact-backend:$IMAGE_TAG"
 
             echo "Waiting for backend..."
-
             sleep 10
 
-            echo "Testing backend..."
-
             curl --fail http://localhost:5000/
-
-            echo "Testing backend API..."
-
             curl --fail http://localhost:5000/api/recipes
 
             echo "Backend deployment successful"
-
-  # ==========================================
-  # FRONTEND BUILD AND TEST
-  # ==========================================
 
   frontend-build-test:
     name: Frontend Build and Test
@@ -212,10 +181,6 @@ jobs:
           grep -qi "</html>" index.html
           echo "Frontend HTML validation successful"
 
-  # ==========================================
-  # FRONTEND DOCKER BUILD AND PUSH
-  # ==========================================
-
   frontend-docker:
     name: Frontend Docker Build and Push
     needs: frontend-build-test
@@ -230,7 +195,6 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
           aws-region: ${{ env.AWS_REGION }}
-
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
@@ -252,10 +216,6 @@ jobs:
         run: |
           docker push \
             ${{ steps.login-ecr.outputs.registry }}/${{ env.FRONTEND_ECR_REPOSITORY }}:latest
-
-  # ==========================================
-  # FRONTEND DEPLOYMENT
-  # ==========================================
 
   frontend-deploy:
     name: Deploy Frontend to EC2
@@ -279,27 +239,28 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
           envs: ECR_REGISTRY,IMAGE_TAG
           script: |
-            echo "FRONTEND DEPLOYMENT"
+            set -e
 
+            echo "=========================================="
+            echo "FRONTEND DEPLOYMENT"
+            echo "=========================================="
 
             aws ecr get-login-password --region us-east-1 | \
               docker login \
               --username AWS \
               --password-stdin \
-
-            echo "Pulling frontend image..."
+              "$ECR_REGISTRY"
 
             docker pull \
               "$ECR_REGISTRY/frontend:$IMAGE_TAG"
 
-            echo "Stopping old frontend container..."
-
             docker stop frontend || true
             docker rm frontend || true
-
-            echo "Starting new frontend container..."
 
             docker run -d \
               --name frontend \
@@ -307,24 +268,23 @@ jobs:
               -p 80:80 \
               "$ECR_REGISTRY/frontend:$IMAGE_TAG"
 
+
             echo "Waiting for frontend..."
             sleep 5
 
-            echo "Testing frontend..."
-
             curl --fail http://localhost/
+
 
             echo "Frontend deployment successful"
 
-  # ==========================================
-  # FINAL VERIFICATION
-  # ==========================================
-
   final-verification:
     name: Final Application Verification
+
     needs:
+      - backend-deploy
       - frontend-deploy
     runs-on: ubuntu-latest
+
 
     steps:
       - name: Verify complete application
@@ -337,41 +297,29 @@ jobs:
             set -e
 
             echo "=========================================="
+
             echo "FINAL APPLICATION VERIFICATION"
             echo "=========================================="
 
-            echo ""
             echo "Docker containers:"
             docker ps
 
-            echo ""
             echo "Testing backend:"
             curl --fail http://localhost:5000/
 
-            echo ""
             echo "Testing backend API:"
             curl --fail http://localhost:5000/api/recipes
 
-            echo ""
+
             echo "Testing frontend:"
             curl --fail http://localhost/
 
-            echo ""
             echo "Checking MySQL:"
             docker ps --filter "name=mysql"
 
-            echo ""
             echo "=========================================="
             echo "FULL STACK DEPLOYMENT SUCCESSFUL"
+
             echo "=========================================="
 ```
-      - backend-deploy
 
-              "$ECR_REGISTRY"
-            echo "Logging into Amazon ECR..."
-            echo "=========================================="
-            echo "=========================================="
-            set -e
-
-          host: ${{ secrets.EC2_HOST }}
-          username: ubuntu
