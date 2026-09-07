@@ -1,14 +1,10 @@
-```yaml
 name: Full Stack CI/CD
 
 on:
   push:
     branches:
       - main
-
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   id-token: write
@@ -26,10 +22,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -43,12 +39,12 @@ jobs:
         run: node --check server.js
 
   backend-docker:
-    name: Backend Docker Build Push
+    name: Backend Docker Build and Push
     needs: backend-build
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Configure AWS
@@ -57,24 +53,24 @@ jobs:
           role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
           aws-region: us-east-1
 
-      - name: Login ECR
+      - name: Login to Amazon ECR
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build backend
+      - name: Build backend Docker image
         working-directory: Backenddeployment
         run: |
           docker build \
             -t ${{ steps.ecr.outputs.registry }}/contact-backend:${{ github.sha }} \
             .
 
-      - name: Push backend
+      - name: Push backend Docker image
         run: |
           docker push \
             ${{ steps.ecr.outputs.registry }}/contact-backend:${{ github.sha }}
 
   backend-deploy:
-    name: Backend Deploy
+    name: Deploy Backend to EC2
     needs: backend-docker
     runs-on: ubuntu-latest
 
@@ -85,11 +81,11 @@ jobs:
           role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
           aws-region: us-east-1
 
-      - name: Login ECR
+      - name: Login to Amazon ECR
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Deploy Backend
+      - name: Deploy backend to EC2
         uses: appleboy/ssh-action@v1.2.0
         env:
           ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
@@ -102,16 +98,24 @@ jobs:
           script: |
             set -e
 
+            echo "Logging into Amazon ECR..."
+
             aws ecr get-login-password --region us-east-1 | \
               docker login \
               --username AWS \
               --password-stdin \
               "$ECR_REGISTRY"
 
+            echo "Pulling backend image..."
+
             docker pull "$ECR_REGISTRY/contact-backend:$IMAGE_TAG"
+
+            echo "Stopping old backend container..."
 
             docker stop backend || true
             docker rm backend || true
+
+            echo "Starting new backend container..."
 
             docker run -d \
               --name backend \
@@ -121,59 +125,65 @@ jobs:
               -p 5000:5000 \
               "$ECR_REGISTRY/contact-backend:$IMAGE_TAG"
 
+            echo "Waiting for backend..."
+
             sleep 10
+
+            echo "Testing backend..."
 
             curl --fail http://localhost:5000/
 
-            echo "Backend deployment successful"
+            echo "Backend deployment successful."
 
   frontend-build:
     name: Frontend Build Test
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Check frontend
+      - name: Validate frontend files
         working-directory: Frontend deployment
         run: |
           test -f index.html
           test -f Dockerfile
           grep -qi "<html" index.html
-          echo "Frontend validation successful"
+          echo "Frontend validation successful."
 
   frontend-docker:
-    name: Frontend Docker Build Push
+    name: Frontend Docker Build and Push
     needs: frontend-build
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
           aws-region: us-east-1
 
-      - name: Login ECR
+      - name: Login to Amazon ECR
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build frontend
+      - name: Build frontend Docker image
         working-directory: Frontend deployment
         run: |
           docker build \
             -t ${{ steps.ecr.outputs.registry }}/frontend:${{ github.sha }} \
             .
 
-      - name: Push frontend
+      - name: Push frontend Docker image
         run: |
           docker push \
             ${{ steps.ecr.outputs.registry }}/frontend:${{ github.sha }}
 
   frontend-deploy:
-    name: Frontend Deploy
+    name: Deploy Frontend to EC2
     needs: frontend-docker
     runs-on: ubuntu-latest
 
@@ -184,11 +194,11 @@ jobs:
           role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
           aws-region: us-east-1
 
-      - name: Login ECR
+      - name: Login to Amazon ECR
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Deploy Frontend
+      - name: Deploy frontend to EC2
         uses: appleboy/ssh-action@v1.2.0
         env:
           ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
@@ -201,16 +211,24 @@ jobs:
           script: |
             set -e
 
+            echo "Logging into Amazon ECR..."
+
             aws ecr get-login-password --region us-east-1 | \
               docker login \
               --username AWS \
               --password-stdin \
               "$ECR_REGISTRY"
 
+            echo "Pulling frontend image..."
+
             docker pull "$ECR_REGISTRY/frontend:$IMAGE_TAG"
+
+            echo "Stopping old frontend container..."
 
             docker stop frontend || true
             docker rm frontend || true
+
+            echo "Starting new frontend container..."
 
             docker run -d \
               --name frontend \
@@ -218,21 +236,25 @@ jobs:
               -p 80:80 \
               "$ECR_REGISTRY/frontend:$IMAGE_TAG"
 
+            echo "Waiting for frontend..."
+
             sleep 5
+
+            echo "Testing frontend..."
 
             curl --fail http://localhost/
 
-            echo "Frontend deployment successful"
+            echo "Frontend deployment successful."
 
   final-verification:
-    name: Final Verification
+    name: Final Application Verification
     needs:
       - backend-deploy
       - frontend-deploy
     runs-on: ubuntu-latest
 
     steps:
-      - name: Verify Application
+      - name: Verify application
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -241,22 +263,36 @@ jobs:
           script: |
             set -e
 
-            echo "Docker containers:"
+            echo "========================================"
+            echo "Docker Containers"
+            echo "========================================"
+
             docker ps
 
-            echo "Backend:"
+            echo "========================================"
+            echo "Testing Backend"
+            echo "========================================"
+
             curl --fail http://localhost:5000/
 
-            echo "Backend API:"
+            echo "========================================"
+            echo "Testing Backend API"
+            echo "========================================"
+
             curl --fail http://localhost:5000/api/recipes
 
-        uses: aws-actions/configure-aws-credentials@v4
-            echo "Frontend:"
+            echo "========================================"
+            echo "Testing Frontend"
+            echo "========================================"
+
             curl --fail http://localhost/
 
-            echo "MySQL:"
+            echo "========================================"
+            echo "Checking MySQL"
+            echo "========================================"
+
             docker ps --filter "name=mysql"
 
+            echo "========================================"
             echo "FULL STACK DEPLOYMENT SUCCESSFUL"
-```
-
+            echo "========================================"
