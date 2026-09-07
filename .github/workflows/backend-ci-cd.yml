@@ -1,27 +1,21 @@
-name: AWS OIDC Test
+name: AWS OIDC Debug
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  aws-test:
+  debug:
     runs-on: ubuntu-latest
 
     steps:
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Debug GitHub OIDC claims
+      - name: Get GitHub OIDC token claims
         shell: bash
         run: |
-          set -euo pipefail
+          set -e
 
           TOKEN_JSON=$(curl -sS \
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
@@ -42,7 +36,7 @@ jobs:
               base64.urlsafe_b64decode(payload)
           )
 
-          print("===== GitHub OIDC Claims =====")
+          print("===== OIDC CLAIMS =====")
           print("iss:", claims.get("iss"))
           print("aud:", claims.get("aud"))
           print("sub:", claims.get("sub"))
@@ -51,22 +45,4 @@ jobs:
           print("repository_owner:", claims.get("repository_owner"))
           print("repository_owner_id:", claims.get("repository_owner_id"))
           print("ref:", claims.get("ref"))
-          print("workflow:", claims.get("workflow"))
-          print("environment:", claims.get("environment"))
-          print("================================")
-          PY
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
-          aws-region: us-east-1
-
-      - name: Check AWS identity
-        run: |
-          echo "AWS authentication successful"
-          aws sts get-caller-identity
-
-      - name: Check AWS region
-        run: |
-          aws configure get region
+          print("========================")
