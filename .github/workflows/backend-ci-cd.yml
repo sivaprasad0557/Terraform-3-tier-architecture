@@ -15,25 +15,20 @@ jobs:
 
     steps:
 
-      # Step 1: Get the GitHub repository code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Step 2: Authenticate GitHub with AWS using OIDC
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::657566734724:role/GitHubActionsTerraformRole
+          role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
           aws-region: ap-south-1
 
-      # Step 3: Check whether AWS authentication works
       - name: Check AWS identity
         run: |
-          echo "Checking AWS identity..."
+          echo "AWS authentication successful"
           aws sts get-caller-identity
 
-      # Step 4: Check AWS region
       - name: Check AWS region
         run: |
-          echo "AWS Region:"
           aws configure get region
