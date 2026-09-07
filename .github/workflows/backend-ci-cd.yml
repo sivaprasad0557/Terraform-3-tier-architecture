@@ -1,4 +1,4 @@
-name: AWS OIDC Debug
+name: AWS OIDC Test
 
 on:
   workflow_dispatch:
@@ -8,41 +8,24 @@ permissions:
   contents: read
 
 jobs:
-  debug:
+  aws-test:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Get GitHub OIDC token claims
-        shell: bash
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::435957166878:role/GitHubActionsTerraformRole
+          aws-region: us-east-1
+
+      - name: Check AWS identity
         run: |
-          set -e
+          echo "AWS authentication successful"
+          aws sts get-caller-identity
 
-          TOKEN_JSON=$(curl -sS \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
-
-          TOKEN=$(echo "$TOKEN_JSON" | jq -r '.value')
-
-          python - "$TOKEN" <<'PY'
-          import sys
-          import json
-          import base64
-
-          token = sys.argv[1]
-          payload = token.split('.')[1]
-          payload += '=' * (-len(payload) % 4)
-
-          claims = json.loads(
-              base64.urlsafe_b64decode(payload)
-          )
-
-          print("===== OIDC CLAIMS =====")
-          print("iss:", claims.get("iss"))
-          print("aud:", claims.get("aud"))
-          print("sub:", claims.get("sub"))
-          print("repository:", claims.get("repository"))
-          print("repository_id:", claims.get("repository_id"))
-          print("repository_owner:", claims.get("repository_owner"))
-          print("repository_owner_id:", claims.get("repository_owner_id"))
-          print("ref:", claims.get("ref"))
-          print("========================")
+      - name: Check AWS region
+        run: |
+          aws configure get region
