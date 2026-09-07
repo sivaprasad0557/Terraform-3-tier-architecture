@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - 'Backenddeployment/**'
-      - '.github/workflows/backend ci-cd.yml'
+      - '.github/workflows/backend-ci-cd.yml'
 
   pull_request:
     branches:
