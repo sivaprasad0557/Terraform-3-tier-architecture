@@ -24,9 +24,9 @@ env:
 
 jobs:
 
-  # =====================================================
+  # ==========================================
   # JOB 1 - BUILD AND VALIDATE
-  # =====================================================
+  # ==========================================
   build-test:
     name: Build & Validate Backend
     runs-on: ubuntu-latest
@@ -36,6 +36,7 @@ jobs:
         working-directory: Backenddeployment
 
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -52,9 +53,10 @@ jobs:
       - name: Validate application
         run: node --check server.js
 
-  # =====================================================
-  # JOB 2 - DOCKER BUILD AND PUSH TO ECR
-  # =====================================================
+
+  # ==========================================
+  # JOB 2 - BUILD AND PUSH DOCKER IMAGE
+  # ==========================================
   docker-publish:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
@@ -65,6 +67,7 @@ jobs:
       contents: read
 
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -94,15 +97,21 @@ jobs:
           docker push \
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
 
-  # =====================================================
-  # JOB 3 - DEPLOY TO BACKEND EC2
-  # =====================================================
+
+  # ==========================================
+  # JOB 3 - DEPLOY TO EC2
+  # ==========================================
   deploy:
     name: Deploy Backend to EC2
     runs-on: ubuntu-latest
     needs: docker-publish
 
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -119,8 +128,14 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
+
           script: |
+
             set -e
+
+            echo "======================================"
+            echo "Starting Backend Deployment"
+            echo "======================================"
 
             echo "Logging in to ECR..."
 
@@ -130,31 +145,67 @@ jobs:
               --password-stdin \
               ${{ steps.login-ecr.outputs.registry }}
 
-            echo "Pulling latest backend image..."
+            echo "ECR login successful"
+
+
+            echo "======================================"
+            echo "Pulling Docker Image"
+            echo "======================================"
 
             docker pull \
               ${{ steps.login-ecr.outputs.registry }}/contact-backend:${{ github.sha }}
 
-            echo "Stopping old backend container..."
+
+            echo "======================================"
+            echo "Stopping Old Backend Container"
+            echo "======================================"
 
             docker stop backend || true
             docker rm backend || true
 
-            echo "Starting new backend container..."
+
+            echo "======================================"
+            echo "Starting New Backend Container"
+            echo "======================================"
 
             docker run -d \
               --name backend \
               --restart unless-stopped \
+              --network app-network \
               --env-file /home/ubuntu/backend.env \
               -p 5000:5000 \
               ${{ steps.login-ecr.outputs.registry }}/contact-backend:${{ github.sha }}
 
-            echo "Waiting for backend..."
+
+            echo "Backend container started"
+
+
+            echo "======================================"
+            echo "Waiting for Backend"
+            echo "======================================"
 
             sleep 10
 
-            echo "Checking backend..."
+
+            echo "======================================"
+            echo "Checking Backend Health"
+            echo "======================================"
 
             curl --fail http://localhost:5000/
 
-            echo "Backend deployment successful!"
+            echo "Backend health check successful"
+
+
+            echo "======================================"
+            echo "Checking Backend API"
+            echo "======================================"
+
+            curl --fail http://localhost:5000/api/recipes
+
+            echo ""
+            echo "Backend API check successful"
+
+
+            echo "======================================"
+            echo "Deployment Successful"
+            echo "======================================"
