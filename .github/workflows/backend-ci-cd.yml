@@ -14,10 +14,50 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ADD THE NEW STEP HERE
+      - name: Debug GitHub OIDC claims
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TOKEN_JSON=$(curl -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
+
+          TOKEN=$(echo "$TOKEN_JSON" | jq -r '.value')
+
+          python - "$TOKEN" <<'PY'
+          import sys
+          import json
+          import base64
+
+          token = sys.argv[1]
+          payload = token.split('.')[1]
+          payload += '=' * (-len(payload) % 4)
+
+          claims = json.loads(
+              base64.urlsafe_b64decode(payload)
+          )
+
+          for key in [
+              "iss",
+              "aud",
+              "sub",
+              "repository",
+              "repository_id",
+              "repository_owner",
+              "repository_owner_id",
+              "ref",
+              "workflow",
+              "environment"
+          ]:
+              print(f"{key}: {claims.get(key)}")
+          PY
+
+      # EXISTING AWS STEP
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
